@@ -1725,12 +1725,41 @@ class MultiheadAttention(BaseLayer):
                     causal_mask.astype(q_proj.dtype),
                     attention_logit_biases,
                 )
-        context, probs = self._compute_attention(
-            q_proj=q_proj,
-            k_proj=k_proj,
-            v_proj=v_proj,
-            attention_logit_biases=attention_logit_biases,
-        )
+        if mode == ForwardMode.EXTEND_STEP:
+            # only works for gqa
+            k_proj = self._repeat_kv_heads(k_proj)
+            v_proj = self._repeat_kv_heads(v_proj)
+            logits = self._compute_logits(q_proj, k_proj)
+            logits = self._cap_logits(logits)
+            probs = softmax_with_biases(logits, attention_logit_biases=attention_logit_biases)
+            probs = self.dropout(probs)
+
+            # bs, p_head, tl, sl = probs.shape
+            # _, _, v_head, head_dim = v_proj.shape
+            # group_size = p_head // v_head
+            # if p_head != v_head:
+            #     probs = jnp.reshape(probs, (bs, v_head, group_size, tl, sl))
+            #     context = jnp.einsum("bngts,bsnh->btngh", probs, v_proj)
+            #     context = jnp.reshape(context, (bs, tl, p_head, head_dim))
+            # else:
+            #     context = jnp.einsum("bnts,bsnh->btnh", probs, v_proj).astype(v_proj.dtype)
+
+            context = jnp.einsum("bnts,bsnh->btnh", probs, v_proj).astype(v_proj.dtype)
+
+            context = self._remat_name(context, "context")
+        else:
+            context, probs = self._compute_attention(
+                q_proj=q_proj,
+                k_proj=k_proj,
+                v_proj=v_proj,
+                attention_logit_biases=attention_logit_biases,
+            )
+        # context, probs = self._compute_attention(
+        #     q_proj=q_proj,
+        #     k_proj=k_proj,
+        #     v_proj=v_proj,
+        #     attention_logit_biases=attention_logit_biases,
+        # )
         self.vlog(3, "atten.prob=%s", probs[0, 0, 0, :])
         self.vlog(3, "atten.context=%s", context.sum())
 
@@ -2842,6 +2871,7 @@ class TransformerLayer(BaseTransformerLayer):
         if cfg.cross_attention is not None:
             self._add_child("cross_attention", cfg.cross_attention.set(target_dim=cfg.input_dim))
 
+    # pylint: disable=dangerous-default-value
     def _forward_for_mode(
         self,
         *,
@@ -2935,6 +2965,8 @@ class TransformerLayer(BaseTransformerLayer):
             self_attention_kv_state=self_atten_outputs.kv_state,
             cross_attention_probs=cross_attention_probs,
         )
+
+    # pylint: enable=dangerous-default-value
 
     def forward(
         self,

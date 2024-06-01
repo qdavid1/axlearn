@@ -105,6 +105,11 @@ class FlashAttention(GroupedQueryAttention):
         v_proj: Tensor,
         attention_logit_biases: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Tensor]:
+        # hacky = False
+        # if q_proj.shape[1] == 1:
+        #     hacky = True
+        #     q_proj = jnp.repeat(q_proj, 16, axis=1)
+
         cfg = self.config
 
         # Repeats key/value heads dim if necessary.
@@ -188,6 +193,8 @@ class FlashAttention(GroupedQueryAttention):
             jnp.empty((batch, num_heads, target_len, source_len)),
             cfg.output_dim_to_partition_spec["bnts"],
         )
+        # if hacky:
+        #     return outputs[:, 0:1, :, :], output_probs[:, :, 0:1, :]
         return outputs, output_probs
 
 
