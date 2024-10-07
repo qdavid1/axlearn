@@ -119,9 +119,17 @@ def flash_attention_implementation(
         def jit_attn(query, key, value, bias, segment_ids):
             batch, target_len, num_heads, _ = query.shape
             _, source_len, _, _ = key.shape
-            if segment_ids is not None or (
-                bias is not None and bias.shape != (batch, num_heads, target_len, source_len)
+            # Fall back to triton gpu kernel if:
+            # - segment_ids is not None,
+            # - bias is not None and has a different shape from [b, h, t, s],
+            # - query/key/value/bias are in float32.
+            if (
+                segment_ids is not None
+                or (bias is not None and bias.shape != (batch, num_heads, target_len, source_len))
+                or jnp.float32
+                in (query.dtype, key.dtype, value.dtype, None if bias is None else bias.dtype)
             ):
+                logging.warning("Flash attention falling back to Triton GPU kernel.")
                 # Fall back to triton kernel.
                 return gpu_flash_attention(
                     query,
