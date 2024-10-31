@@ -340,6 +340,9 @@ class RMSNorm(BaseNormalizationLayer):
         x_dtype = x.dtype
         if cfg.forward_dtype is not None:
             x = x.astype(cfg.forward_dtype)
+
+        # x = x * self.parameters["scale"]
+
         moment2 = (x * x).mean(axis=-1, keepdims=True)
         x = x * jax.lax.rsqrt(moment2 + cfg.eps)
         x = x.astype(x_dtype)

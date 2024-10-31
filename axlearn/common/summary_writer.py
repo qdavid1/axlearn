@@ -213,6 +213,9 @@ class SummaryWriter(BaseWriter):
         if step % cfg.write_every_n_steps != 0:
             return
 
+        # if (step - 1) % 10 != 0:
+        #     return
+
         with self.summary_writer.as_default(step=step):
 
             def write(path: str, value: jax.Array):
